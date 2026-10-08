@@ -95,3 +95,14 @@
 - 原始 Skill 指令不自动执行；自动填入的说明只作为文本渲染，作者可继续编辑。引用前确认分享许可并保留来源与授权。
 - 不扫描或自动同步本机 Skill。新环境包含一个带 MIT 授权的引用 Demo；已有后台只补空的 skills 列表，不自动导入示例或覆盖现有内容。
 - 更新代码后，按原启动方式重启后台 Node 进程，再发布。仅刷新浏览器无法加载新的服务端 schema。
+
+# 独立留言板
+
+- 访客从顶部导航“关于”后的“留言”进入 `/guestbook/`，无需登录，填写昵称（1–40 字）和纯文本留言（1–2000 字）。留言默认待审核，不在文章底部显示。
+- 管理员登录后台后进入“留言”，按待审核、已通过、已拒绝筛选，执行通过审核、拒绝或撤回展示。访客可选择“公开 / 不公开”，默认公开。只有选择公开且已通过的留言公开；不公开留言即使审核通过也仅管理员可见，后台不能修改访客选择。历史留言保持公开属性；审核即时生效，不需要点击“发布”。昵称为访客自填，不代表认证身份。
+- 公开接口：`GET /api/guestbook?before=<id>`、`POST /api/guestbook`；每页 20 条，返回 `items` 和 `nextCursor`。提交字段为 `nickname`、`body`、`visibility`（`public`/`private`，默认 `public`）。
+- 后台接口：`GET /admin/api/guestbook?status=pending&before=<id>`、`PATCH /admin/api/guestbook/:id`（`status` 为 `pending`、`approved`、`rejected`）。复用作者 Session，写操作要求准确 Origin 和 CSRF Token。
+- 独立存储于 `${ADMIN_DATA_DIR}/guestbook.sqlite`，不随静态发布快照覆盖，也不包含在“导出内容备份”的 JSON 中。完整备份应停服后复制整个数据目录，包括此文件。
+- 使用 Node 内置 SQLite，沿用 Node 22.12+ 要求；Node 22 会输出实验性模块提示。无需另装数据库服务。
+- 提交接口限制 JSON 请求体 8 KB，同一可信 IP 每 15 分钟最多 5 次尝试，全站每 15 分钟最多 100 次。限流状态为有界内存，重启清空；不持久化 IP。反代仅在受控单跳部署下开启 `ADMIN_TRUST_PROXY`。
+- 部署此功能需重启后台，并重新构建发布一次以加入导航和新页面；后续留言审核无需重新构建。

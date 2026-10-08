@@ -1692,3 +1692,9 @@ main,
     align-self: flex-start;
   }
 }
+
+.guestbook-entry { padding: 24px 0; border-top: 1px solid var(--line); }
+.guestbook-body { white-space: pre-wrap; overflow-wrap: anywhere; }
+.guestbook-entry strong { overflow-wrap: anywhere; }
+[data-guestbook-filter][aria-pressed="true"] { text-decoration: underline; font-weight: 700; }
+#guestbook-more[hidden] { display: none; }

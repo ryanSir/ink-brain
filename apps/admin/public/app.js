@@ -22,6 +22,7 @@ const names = {
   projects: "项目",
   tools: "工具",
   skills: "Skill",
+  guestbook: "留言",
   tags: "标签",
   assets: "文件库",
   settings: "站点设置",
@@ -198,6 +199,7 @@ function shell() {
 function draw() {
   shell();
   const c = $("#content");
+  if (page === "guestbook") { drawGuestbook(); return; }
   if (page === 'skills' && !Array.isArray(snapshot.state.skills)) {
     c.innerHTML = '<section class="card"><h2>请重启后台服务</h2><p>Skill 页面已更新，当前 Node 进程仍在使用旧版接口。请按原启动方式重启后台，再刷新本页；已有内容不会删除。</p></section>';
     return;
@@ -1077,10 +1079,46 @@ app.addEventListener("change", async (e) => {
     notify(error.message, true);
   }
 });
+let guestbookStatus = 'pending', guestbookCursor = null, guestbookRequest = 0;
+async function drawGuestbook(append = false) {
+  const request = ++guestbookRequest;
+  const content = $('#content');
+  if (!append) content.innerHTML = `<section class="card"><p class="help">只有选择公开且审核通过的留言才会展示。不公开的留言审核后也不会展示。</p><div class="toolbar" aria-label="留言筛选">${[['pending','待审核'],['approved','已通过'],['rejected','已拒绝']].map(([value,label]) => `<button data-guestbook-filter="${value}" aria-pressed="${guestbookStatus === value}">${label}</button>`).join('')}</div><p id="guestbook-status" role="status">正在读取留言…</p><div id="guestbook-list"></div><button id="guestbook-more" data-guestbook-more hidden>加载更多</button></section>`;
+  const status = $('#guestbook-status');
+  try {
+    const data = await api(`guestbook?status=${guestbookStatus}${append && guestbookCursor ? `&before=${guestbookCursor}` : ''}`);
+    if (request !== guestbookRequest || page !== 'guestbook' || content !== $('#content')) return;
+    const list = $('#guestbook-list');
+    list.insertAdjacentHTML('beforeend', data.items.map(m => `<article class="guestbook-entry"><div class="toolbar"><strong>${escape(m.nickname)}</strong><span class="badge">${m.visibility === 'private' ? '不公开' : '公开'}</span><time>${escape(new Date(m.createdAt).toLocaleString('zh-CN'))}</time></div><p class="guestbook-body">${escape(m.body)}</p><div class="toolbar">${m.status !== 'approved' ? `<button data-guestbook-id="${m.id}" data-guestbook-state="approved">通过审核</button>` : `<button data-guestbook-id="${m.id}" data-guestbook-state="pending">${m.visibility === 'private' ? '撤回审核' : '撤回展示'}</button>`}${m.status !== 'rejected' ? `<button data-guestbook-id="${m.id}" data-guestbook-state="rejected">拒绝</button>` : ''}</div></article>`).join(''));
+    guestbookCursor = data.nextCursor;
+    $('#guestbook-more').hidden = !guestbookCursor;
+    status.textContent = list.children.length ? '' : '当前分类还没有留言。';
+  } catch (error) {
+    if (request === guestbookRequest && page === 'guestbook' && status.isConnected) status.textContent = `${error.message}，请点击分类重试。`;
+  }
+}
 app.addEventListener("click", async (e) => {
   const b = e.target.closest("button");
   if (!b) return;
   try {
+    if (b.dataset.guestbookFilter) {
+      guestbookStatus = b.dataset.guestbookFilter; guestbookCursor = null;
+      await drawGuestbook();
+      if (page === "guestbook") $('[data-guestbook-filter][aria-pressed="true"]')?.focus();
+      return;
+    }
+    if (b.hasAttribute('data-guestbook-more')) {
+      b.disabled = true; await drawGuestbook(true); b.disabled = false; return;
+    }
+    if (b.dataset.guestbookId) {
+      b.disabled = true;
+      try {
+        await api(`guestbook/${b.dataset.guestbookId}`, 'PATCH', { status: b.dataset.guestbookState });
+        notify('留言状态已更新');
+        if (page === 'guestbook') { guestbookCursor = null; await drawGuestbook(); }
+      } finally { b.disabled = false; }
+      return;
+    }
     if (
       b.dataset.topicAdd ||
       b.dataset.topicRemove !== undefined ||

@@ -19,9 +19,12 @@ import {
 import { createPublisher } from "./publisher.mjs";
 import { inspectSkillPackage } from "./skill-package.mjs";
 import { createStats } from "./stats.mjs";
+import { createGuestbook, submissionLimiter } from "./guestbook.mjs";
 
 // 校验失败要说清楚是哪个字段、超了多少，而不是把 Zod 的原文抛给作者。
 const fieldNames = {
+  nickname: "昵称",
+  body: "留言内容",
   name: "名称",
   title: "标题",
   summary: "简介",
@@ -132,6 +135,7 @@ export async function createApp(options = {}) {
   const trustProxy =
     options.trustProxy ?? process.env.ADMIN_TRUST_PROXY === "1";
   const stats = await createStats({ dir, now: options.now });
+  const guestbook = createGuestbook(dir);
   const app = express();
   app.disable("x-powered-by");
   app.use((req, res, next) => {
@@ -191,6 +195,12 @@ export async function createApp(options = {}) {
       ? next()
       : auth.trusted(req, res, () => auth.csrf(req, res, next)),
   );
+  app.get("/admin/api/guestbook", (req, res) => {
+    res.json(guestbook.list({ status: req.query.status ?? 'pending', before: req.query.before, privateFields: true }));
+  });
+  app.patch("/admin/api/guestbook/:id", (req, res) => {
+    res.json(guestbook.moderate(req.params.id, req.body));
+  });
   app.post("/admin/api/logout", auth.logout);
   app.get("/admin/api/state", async (req, res) => {
     const state = await store.read();
@@ -497,6 +507,17 @@ export async function createApp(options = {}) {
   app.get("/admin/api/build", (req, res) =>
     res.json({ job: publisher.status(), active: publisher.current() }),
   );
+  app.get('/api/guestbook', (req, res) => {
+    res.set('Cache-Control', 'no-store');
+    res.json(guestbook.list({ before: req.query.before }));
+  });
+  app.post('/api/guestbook', auth.trusted,
+    submissionLimiter(req => clientIp(req, trustProxy)),
+    (req, res, next) => req.is('application/json') ? next() : res.status(415).json({ error: '请使用 JSON 提交留言' }),
+    express.json({ limit: '8kb' }), (req, res) => {
+      res.set('Cache-Control', 'no-store');
+      res.status(201).json(guestbook.submit(req.body));
+    });
   // 公开只读统计接口，供访客页面读取；不需要鉴权，也不产生任何副作用。
   app.get("/api/stats/summary", (req, res) => {
     res.set("Cache-Control", "no-store");

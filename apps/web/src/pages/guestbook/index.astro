@@ -1,0 +1,125 @@
+---
+import BaseLayout from '../../layouts/BaseLayout.astro';
+import PageIntro from '../../components/PageIntro.astro';
+---
+<BaseLayout title="留言 — InkBrain" description="留下你的想法、建议，或打个招呼。可选择公开或不公开，公开留言审核通过后展示。" section="guestbook">
+  <PageIntro title="留言" description="分享想法、提出建议、聊聊项目合作，或者只是打个招呼。" index="GUESTBOOK" note="每一条认真写下的文字，都值得被读到。" />
+  <div class="content-shell guestbook-grid">
+    <section class="message-wall" aria-labelledby="wall-title">
+      <div class="wall-heading"><h2 id="wall-title">留在这里的话</h2><span>审核后公开</span></div>
+      <p id="list-status" role="status">正在读取留言…</p>
+      <ul id="messages"></ul>
+      <button id="load-more" type="button" hidden>加载更多</button>
+      <button id="retry-list" type="button" hidden>重新加载</button>
+    </section>
+    <section class="message-compose" aria-labelledby="compose-title">
+      <span class="compose-index" aria-hidden="true">WRITE A NOTE</span>
+      <h2 id="compose-title">写下你的留言</h2>
+      <p id="form-help">无需登录。你可以选择公开留言，或只让管理员看到。</p>
+      <form id="guestbook-form" aria-describedby="form-help form-status">
+        <label for="nickname">昵称</label>
+        <input id="nickname" name="nickname" required maxlength="40" autocomplete="nickname" placeholder="怎么称呼你" aria-describedby="nickname-help form-status" />
+        <small id="nickname-help">最多 40 字；昵称不代表认证身份。</small>
+        <label for="message-body">留言内容</label>
+        <textarea id="message-body" name="body" required maxlength="2000" rows="7" placeholder="有什么想说的？" aria-describedby="body-help form-status"></textarea>
+        <small id="body-help">最多 2000 字。请勿填写手机号、密码等私人信息。</small>
+        <fieldset aria-describedby="visibility-help">
+          <legend>是否公开</legend>
+          <div class="visibility-options">
+            <label><input type="radio" name="visibility" value="public" checked /> 公开</label>
+            <label><input type="radio" name="visibility" value="private" /> 不公开</label>
+          </div>
+          <small id="visibility-help">公开留言审核通过后展示；不公开的留言仅管理员可见。</small>
+        </fieldset>
+        <button id="submit-message" type="submit">提交留言</button>
+        <p id="form-status" role="status"></p>
+      </form>
+      <noscript>请启用 JavaScript，以读取和提交留言。</noscript>
+    </section>
+  </div>
+</BaseLayout>
+<script>
+  interface Message { id: number; nickname: string; body: string; createdAt: string }
+  const form = document.querySelector<HTMLFormElement>('#guestbook-form')!;
+  const submit = document.querySelector<HTMLButtonElement>('#submit-message')!;
+  const formStatus = document.querySelector<HTMLElement>('#form-status')!;
+  const listStatus = document.querySelector<HTMLElement>('#list-status')!;
+  const list = document.querySelector<HTMLUListElement>('#messages')!;
+  const more = document.querySelector<HTMLButtonElement>('#load-more')!;
+  const retry = document.querySelector<HTMLButtonElement>('#retry-list')!;
+  let cursor: number | null = null;
+  async function loadMessages() {
+    more.disabled = true; retry.hidden = true; list.setAttribute('aria-busy', 'true');
+    try {
+      const res = await fetch('/api/guestbook' + (cursor ? `?before=${cursor}` : ''));
+      if (!res.ok) throw new Error('留言暂时无法加载，请稍后重试。');
+      const data: { items: Message[]; nextCursor: number | null } = await res.json();
+      for (const message of data.items) {
+        const li = document.createElement('li');
+        const head = document.createElement('div'); head.className = 'message-heading';
+        const name = document.createElement('strong'); name.textContent = message.nickname;
+        const time = document.createElement('time'); time.dateTime = message.createdAt;
+        time.textContent = new Date(message.createdAt).toLocaleDateString('zh-CN');
+        const body = document.createElement('p'); body.textContent = message.body;
+        head.append(name, time); li.append(head, body); list.append(li);
+      }
+      cursor = data.nextCursor; more.hidden = cursor === null;
+      listStatus.textContent = list.children.length ? '' : '还没有公开留言，欢迎留下第一句话。';
+    } catch {
+      listStatus.textContent = '留言暂时无法加载，请稍后重试。'; retry.hidden = false;
+    } finally { more.disabled = false; list.removeAttribute('aria-busy'); }
+  }
+  more.addEventListener('click', loadMessages);
+  retry.addEventListener('click', loadMessages);
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    const nickname = document.querySelector<HTMLInputElement>('#nickname')!;
+    const body = document.querySelector<HTMLTextAreaElement>('#message-body')!;
+    for (const field of [nickname, body]) {
+      field.removeAttribute('aria-invalid');
+      if (!field.value.trim()) {
+        field.setAttribute('aria-invalid', 'true'); field.focus();
+        formStatus.textContent = field === nickname ? '请填写昵称。' : '请填写留言内容。'; return;
+      }
+    }
+    submit.disabled = true; form.setAttribute('aria-busy', 'true'); formStatus.textContent = '正在提交…';
+    try {
+      const res = await fetch('/api/guestbook', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ nickname: nickname.value, body: body.value, visibility: new FormData(form).get('visibility') }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? '提交失败，请稍后重试。');
+      form.reset(); formStatus.textContent = data.message;
+    } catch (error) { formStatus.textContent = error instanceof Error ? error.message : '提交失败，请稍后重试。'; }
+    finally { submit.disabled = false; form.removeAttribute('aria-busy'); }
+  });
+  loadMessages();
+</script>
+<style>
+  .guestbook-grid { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, .85fr); gap: clamp(28px, 6vw, 90px); padding-bottom: 100px; align-items: start; }
+  h2 { font-family: var(--display); font-size: 24px; margin: 0; }
+  .wall-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; border-bottom: 2px solid var(--ink); padding-bottom: 20px; }
+  .wall-heading span, small, #form-help, #list-status { color: var(--ink-soft); font-size: 14px; }
+  .message-compose { border: 1px solid var(--line); background: var(--paper-soft); padding: clamp(22px, 3vw, 36px); }
+  .compose-index { color: var(--accent); font: 12px var(--mono); display: block; margin-bottom: 20px; }
+  form { display: grid; gap: 10px; margin-top: 28px; }
+  label { font-weight: 600; margin-top: 10px; }
+  input, textarea { width: 100%; min-width: 0; border: 1px solid var(--line-strong); border-radius: 0; padding: 12px; background: var(--paper); color: var(--ink); font: inherit; }
+  textarea { resize: vertical; }
+  fieldset { margin: 16px 0 0; padding: 0; border: 0; min-width: 0; }
+  legend { font-weight: 600; }
+  .visibility-options { display: flex; gap: 28px; margin: 8px 0; }
+  .visibility-options label { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 0; cursor: pointer; }
+  .visibility-options input { width: 18px; height: 18px; margin: 0; accent-color: var(--accent); }
+  button { cursor: pointer; min-height: 44px; border: 1px solid var(--line-strong); background: var(--paper-soft); color: var(--ink); padding: 10px 18px; font: inherit; }
+  #submit-message { justify-self: end; min-width: 132px; margin-top: 12px; padding: 10px 24px; border-color: var(--accent); border-radius: 4px; background: transparent; color: var(--accent); font-size: 14px; font-weight: 600; }
+  #submit-message:hover:not(:disabled) { background: var(--accent); color: var(--paper); }
+  #submit-message:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+  button:disabled { cursor: wait; opacity: .65; }
+  #form-status { margin: 0; font-size: 14px; overflow-wrap: anywhere; }
+  #messages { padding: 0; margin: 0 0 24px; list-style: none; }
+  #messages :global(li) { padding: 26px 0; border-bottom: 1px solid var(--line); }
+  #messages :global(.message-heading) { display: flex; justify-content: space-between; gap: 16px; align-items: baseline; }
+  #messages :global(strong) { overflow-wrap: anywhere; }
+  #messages :global(time) { font: 12px var(--mono); color: var(--ink-soft); flex-shrink: 0; }
+  #messages :global(p) { white-space: pre-wrap; overflow-wrap: anywhere; margin: 12px 0 0; }
+  @media (max-width: 760px) { .guestbook-grid { grid-template-columns: 1fr; } .message-compose { order: -1; } }
+</style>

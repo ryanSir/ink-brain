@@ -1,6 +1,6 @@
 ---
 interface Props {
-  active: 'home' | 'writing' | 'knowledge' | 'projects' | 'tools' | 'skills' | 'about';
+  active: 'home' | 'writing' | 'knowledge' | 'projects' | 'tools' | 'skills' | 'about' | 'guestbook';
 }
 
 const { active } = Astro.props;
@@ -12,6 +12,7 @@ const navItems = [
   { id: 'tools', label: '工具', href: '/tools/' },
   { id: 'skills', label: 'Skill', href: '/skills/' },
   { id: 'about', label: '关于', href: '/about/' },
+  { id: 'guestbook', label: '留言', href: '/guestbook/' },
 ] as const;
 ---
 
